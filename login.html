@@ -16,8 +16,29 @@
 
     <!-- Logo -->
     <div class="text-center mb-8">
-      <div class="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-2xl shadow-xl mb-4">
-        <span class="text-white font-bold text-xl">LAX</span>
+      <div class="inline-block mb-4 shadow-xl rounded-2xl overflow-hidden" style="width:64px;height:64px">
+        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+          <defs>
+            <linearGradient id="lbg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#6366f1"/>
+              <stop offset="100%" stop-color="#3730a3"/>
+            </linearGradient>
+            <linearGradient id="lacc" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#a5b4fc"/>
+              <stop offset="100%" stop-color="#ffffff"/>
+            </linearGradient>
+          </defs>
+          <rect width="200" height="200" rx="44" fill="url(#lbg)"/>
+          <circle cx="76"  cy="52" r="11" fill="white" opacity="0.95"/>
+          <circle cx="100" cy="44" r="13" fill="white"/>
+          <circle cx="124" cy="52" r="11" fill="white" opacity="0.95"/>
+          <path d="M52 80 L148 80 L130 108 L70 108 Z" fill="url(#lacc)" opacity="0.95"/>
+          <path d="M70 112 L130 112 L118 136 L82 136 Z" fill="url(#lacc)" opacity="0.9"/>
+          <path d="M82 140 L118 140 L112 158 L88 158 Z" fill="url(#lacc)" opacity="0.85"/>
+          <path d="M88 162 Q100 182 112 162 L108 158 L92 158 Z" fill="white" opacity="0.9"/>
+          <circle cx="156" cy="44" r="5" fill="white" opacity="0.35"/>
+          <circle cx="168" cy="56" r="3" fill="white" opacity="0.2"/>
+        </svg>
       </div>
       <h1 class="text-2xl font-bold text-white">LAX Group CRM</h1>
       <p class="text-slate-400 text-sm mt-1">Gestión de Leads · Facebook Ads</p>

@@ -1,0 +1,39 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#3730a3"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a5b4fc"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="200" height="200" rx="44" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow -->
+  <rect width="200" height="200" rx="44" fill="white" opacity="0.04"/>
+
+  <!-- Three lead dots at top (representing incoming leads) -->
+  <circle cx="76"  cy="52" r="11" fill="white" opacity="0.95"/>
+  <circle cx="100" cy="44" r="13" fill="white"/>
+  <circle cx="124" cy="52" r="11" fill="white" opacity="0.95"/>
+
+  <!-- Funnel body - wide top -->
+  <path d="M52 80 L148 80 L130 108 L70 108 Z" fill="url(#accent)" opacity="0.95"/>
+
+  <!-- Funnel body - middle -->
+  <path d="M70 112 L130 112 L118 136 L82 136 Z" fill="url(#accent)" opacity="0.9"/>
+
+  <!-- Funnel neck -->
+  <path d="M82 140 L118 140 L112 158 L88 158 Z" fill="url(#accent)" opacity="0.85"/>
+
+  <!-- Drop / output -->
+  <path d="M88 162 Q100 182 112 162 L108 158 L92 158 Z" fill="white" opacity="0.9"/>
+
+  <!-- Small sparkle top right -->
+  <circle cx="156" cy="44" r="5" fill="white" opacity="0.4"/>
+  <circle cx="168" cy="56" r="3" fill="white" opacity="0.25"/>
+</svg>
