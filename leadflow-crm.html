@@ -598,6 +598,11 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
   const [dragging,  setDragging]  = useState(null);
   const [dragOver,  setDragOver]  = useState(null);
   const [filter,    setFilter]    = useState('');
+  const [movingId,  setMovingId]  = useState(null); // id del lead con picker de stage abierto
+
+  // Touch drag refs
+  const touchLead   = useRef(null);
+  const touchStage  = useRef(null);
 
   const filtered = filter
     ? leads.filter(l => l.name.toLowerCase().includes(filter.toLowerCase()) ||
@@ -611,7 +616,7 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Pipeline de Ventas</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Arrastrá las tarjetas entre columnas para avanzar etapas</p>
+          <p className="text-sm text-slate-500 mt-0.5">Arrastrá las tarjetas o tocá ⇄ para cambiar de etapa</p>
         </div>
         <div className="flex gap-2">
           <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filtrar leads..."
@@ -629,6 +634,7 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
           const isTarget   = dragOver === stage.id;
           return (
             <div key={stage.id}
+              data-stage-id={stage.id}
               onDragOver={e => { e.preventDefault(); setDragOver(stage.id); }}
               onDrop={e => {
                 e.preventDefault();
@@ -658,12 +664,35 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
                 {stageLeads.map(lead => {
                   const over = isOverdue(lead.followUpDate) && !['converted','lost'].includes(lead.stage);
                   const tod  = isToday(lead.followUpDate)   && !['converted','lost'].includes(lead.stage);
+                  const showPicker = movingId === lead.id;
                   return (
                     <div key={lead.id}
                       draggable
                       onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging(lead); }}
                       onDragEnd={() => { setDragging(null); setDragOver(null); }}
-                      onClick={() => onEdit(lead)}
+                      onTouchStart={e => { touchLead.current = lead; touchStage.current = null; }}
+                      onTouchMove={e => {
+                        const t = e.touches[0];
+                        const el = document.elementFromPoint(t.clientX, t.clientY);
+                        const col = el && el.closest('[data-stage-id]');
+                        const sid = col ? col.getAttribute('data-stage-id') : null;
+                        if (sid !== touchStage.current) { touchStage.current = sid; setDragOver(sid); }
+                      }}
+                      onTouchEnd={e => {
+                        const tl = touchLead.current;
+                        const ts = touchStage.current;
+                        if (tl && ts && tl.stage !== ts) {
+                          const s = STAGES.find(s => s.id === ts);
+                          onStageChange(tl.id, ts);
+                          showToast(`${tl.name} → ${s.label}`, 'success');
+                        } else if (!ts) {
+                          // no drag detected — treat as tap to edit
+                          onEdit(tl);
+                        }
+                        touchLead.current = null; touchStage.current = null;
+                        setDragging(null); setDragOver(null);
+                      }}
+                      onClick={e => { if (!('ontouchstart' in window)) onEdit(lead); }}
                       className={`bg-white rounded-xl border p-3 cursor-grab active:cursor-grabbing
                         hover:shadow-md transition-all duration-150 select-none
                         ${dragging?.id === lead.id ? 'drag-active shadow-lg' : 'shadow-sm'}
@@ -696,15 +725,25 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
                       <div className="flex items-center justify-between mt-1">
                         <ContactBtns lead={lead} />
                         <div className="flex items-center gap-1">
+                          {/* Mover stage button — visible on touch devices */}
+                          <button
+                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); setMovingId(showPicker ? null : lead.id); touchLead.current = null; touchStage.current = null; }}
+                            onClick={e => { e.stopPropagation(); setMovingId(showPicker ? null : lead.id); }}
+                            title="Mover a etapa"
+                            className="text-xs text-indigo-500 hover:bg-indigo-50 px-1.5 py-1 rounded-lg transition-colors border border-indigo-200 font-bold">
+                            ⇄
+                          </button>
                           {stage.id !== 'converted' && stage.id !== 'lost' && (
                             <button
+                              onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
                               onClick={e => { e.stopPropagation(); onStageChange(lead.id, 'converted'); showToast(`🎉 ${lead.name} convertido!`, 'success'); }}
                               title="Marcar convertido"
                               className="text-xs text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors font-semibold border border-emerald-200">
-                              ✓ Cerrar
+                              ✓
                             </button>
                           )}
                           <button
+                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); if (window.confirm(`¿Eliminar a "${lead.name}"?`)) onDelete(lead.id); }}
                             onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar a "${lead.name}"?`)) onDelete(lead.id); }}
                             title="Eliminar lead"
                             className="text-slate-300 hover:text-red-500 hover:bg-red-50 w-6 h-6 flex items-center justify-center rounded-lg transition-colors text-base leading-none border border-transparent hover:border-red-200">
@@ -712,6 +751,23 @@ function PipelineView({ leads, onEdit, onDelete, onStageChange, showToast }) {
                           </button>
                         </div>
                       </div>
+
+                      {/* Stage picker — se abre al tocar ⇄ */}
+                      {showPicker && (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          <p className="text-xs text-slate-400 mb-1.5 font-medium">Mover a:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {STAGES.filter(s => s.id !== lead.stage).map(s => (
+                              <button key={s.id}
+                                onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); onStageChange(lead.id, s.id); showToast(`${lead.name} → ${s.label}`, 'success'); setMovingId(null); touchLead.current = null; }}
+                                onClick={e => { e.stopPropagation(); onStageChange(lead.id, s.id); showToast(`${lead.name} → ${s.label}`, 'success'); setMovingId(null); }}
+                                className={`text-xs px-2 py-1 rounded-lg border font-semibold transition-colors ${s.pill}`}>
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
