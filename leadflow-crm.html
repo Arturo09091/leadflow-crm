@@ -440,14 +440,184 @@ function Dashboard({ leads, onEdit, onOpenNew, goTo }) {
   );
 }
 
+/* ═══════════════════════════ CSV IMPORT ════════════════════════ */
+
+const CSV_COL_MAP = {
+  // name
+  name:'name', nombre:'name',
+  // phone
+  phone:'phone', teléfono:'phone', telefono:'phone', celular:'phone', móvil:'phone', movil:'phone',
+  // email
+  email:'email', correo:'email',
+  // source
+  source:'source', fuente:'source',
+  // campaign
+  campaign:'campaign', campaña:'campaign', campania:'campaign',
+  // adset
+  adset:'adSet', 'ad set':'adSet', conjunto:'adSet',
+  // stage
+  stage:'stage', etapa:'stage',
+  // value
+  value:'value', valor:'value',
+  // followUpDate
+  followupdate:'followUpDate', 'próx. contacto':'followUpDate', 'prox. contacto':'followUpDate',
+  'próximo contacto':'followUpDate', 'proximo contacto':'followUpDate',
+  // notes
+  notes:'notes', notas:'notes', nota:'notes',
+};
+
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
+  if (lines.length < 2) return [];
+
+  // Parse a single CSV line respecting quoted fields
+  const parseLine = line => {
+    const result = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    result.push(cur.trim());
+    return result;
+  };
+
+  const headers = parseLine(lines[0]).map(h => h.toLowerCase().replace(/^"|"$/g, ''));
+  const colMap  = headers.map(h => CSV_COL_MAP[h] || null);
+
+  return lines.slice(1).map(line => {
+    const vals = parseLine(line);
+    const obj  = {};
+    colMap.forEach((field, i) => { if (field) obj[field] = (vals[i] || '').replace(/^"|"$/g, ''); });
+    return obj;
+  }).filter(r => r.name);
+}
+
+function CSVImportModal({ onImport, onClose }) {
+  const [step,     setStep]     = useState('upload');  // 'upload' | 'preview'
+  const [rows,     setRows]     = useState([]);
+  const [filename, setFilename] = useState('');
+  const [error,    setError]    = useState('');
+  const fileRef = useRef();
+
+  const handleFile = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFilename(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const parsed = parseCSV(ev.target.result);
+      if (parsed.length === 0) { setError('No se encontraron leads válidos. Asegurate de que el CSV tenga una columna "name" o "nombre".'); return; }
+      setError('');
+      setRows(parsed);
+      setStep('preview');
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const confirm = () => onImport(rows);
+
+  const PREVIEW_FIELDS = ['name','phone','email','source','stage'];
+  const PREVIEW_LABELS = { name:'Nombre', phone:'Teléfono', email:'Email', source:'Fuente', stage:'Etapa' };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Importar leads desde CSV</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Columnas soportadas: nombre, teléfono, email, fuente, campaña, etapa, valor, notas</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100">✕</button>
+        </div>
+
+        {step === 'upload' && (
+          <div className="p-8 flex flex-col items-center gap-4">
+            <div
+              onClick={() => fileRef.current.click()}
+              className="w-full border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-2xl p-10 flex flex-col items-center gap-3 cursor-pointer transition-colors group">
+              <div className="text-5xl">📂</div>
+              <p className="text-slate-600 font-semibold group-hover:text-indigo-600">Haz clic para seleccionar tu archivo CSV</p>
+              <p className="text-xs text-slate-400">O arrastrá el archivo aquí</p>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
+            {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2 w-full">{error}</p>}
+
+            {/* Format hint */}
+            <div className="w-full bg-slate-50 rounded-xl p-4 text-xs text-slate-500">
+              <p className="font-semibold text-slate-600 mb-1">Formato esperado (primera fila = encabezados):</p>
+              <code className="block text-slate-500 overflow-x-auto whitespace-nowrap">nombre, teléfono, email, fuente, campaña, etapa, valor, notas</code>
+              <p className="mt-2">También acepta el formato exportado por este sistema.</p>
+            </div>
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <>
+            <div className="p-4 border-b bg-slate-50 flex items-center justify-between">
+              <span className="text-sm text-slate-600">
+                <span className="font-bold text-slate-800">{rows.length}</span> leads encontrados en <span className="font-medium">{filename}</span>
+              </span>
+              <button onClick={() => { setStep('upload'); setRows([]); setFilename(''); }} className="text-xs text-slate-400 hover:text-slate-600 underline">Cambiar archivo</button>
+            </div>
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white border-b">
+                  <tr>
+                    {PREVIEW_FIELDS.map(f => (
+                      <th key={f} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{PREVIEW_LABELS[f]}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.slice(0, 50).map((r, i) => (
+                    <tr key={i} className="hover:bg-slate-50">
+                      <td className="px-4 py-2 font-medium text-slate-800">{r.name || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{r.phone || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{r.email || '—'}</td>
+                      <td className="px-4 py-2 text-slate-500">{r.source || '—'}</td>
+                      <td className="px-4 py-2">
+                        {r.stage
+                          ? <StagePill stageId={STAGES.find(s => s.id === r.stage || s.label.toLowerCase() === (r.stage||'').toLowerCase())?.id || 'new'} sm />
+                          : <StagePill stageId="new" sm />}
+                      </td>
+                    </tr>
+                  ))}
+                  {rows.length > 50 && (
+                    <tr><td colSpan={5} className="text-center py-3 text-xs text-slate-400">… y {rows.length - 50} más</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 border-t flex gap-3 justify-end">
+              <button onClick={onClose} className="px-4 py-2 rounded-xl border text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+              <button onClick={confirm}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors shadow-sm">
+                ↑ Importar {rows.length} leads
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════ LEADS TABLE ════════════════════════ */
 
-function LeadsView({ leads, onEdit, onDelete, onStageChange, showToast }) {
+function LeadsView({ leads, onEdit, onDelete, onStageChange, onImport, showToast }) {
   const [search,      setSearch]      = useState('');
   const [filterStage, setFilterStage] = useState('all');
   const [filterSrc,   setFilterSrc]   = useState('all');
   const [sortCol,     setSortCol]     = useState('createdAt');
   const [sortDir,     setSortDir]     = useState('desc');
+  const [showImport,  setShowImport]  = useState(false);
+
+  const handleImportDone = rows => { onImport(rows); setShowImport(false); };
 
   const toggleSort = col => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -503,12 +673,18 @@ function LeadsView({ leads, onEdit, onDelete, onStageChange, showToast }) {
             className="border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2 rounded-xl text-sm font-medium text-slate-600 transition-colors">
             ↓ Exportar CSV
           </button>
+          <button onClick={() => setShowImport(true)}
+            className="border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-xl text-sm font-medium text-indigo-600 transition-colors">
+            ↑ Importar CSV
+          </button>
           <button onClick={() => onEdit(null)}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm">
             ＋ Nuevo Lead
           </button>
         </div>
       </div>
+
+      {showImport && <CSVImportModal onImport={handleImportDone} onClose={() => setShowImport(false)} />}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2.5 mb-4">
@@ -1565,8 +1741,34 @@ function App() {
     try { if (lead) await api.upsertLead(lead); } catch {}
   };
 
+  const handleImport = async rows => {
+    const stageIds = STAGES.map(s => s.id);
+    const newLeads = rows.map(r => ({
+      name: r.name || '',
+      phone: r.phone || '',
+      email: r.email || '',
+      source: r.source || 'Otro',
+      campaign: r.campaign || '',
+      adSet: r.adSet || '',
+      stage: stageIds.includes(r.stage)
+        ? r.stage
+        : (STAGES.find(s => s.label.toLowerCase() === (r.stage||'').toLowerCase())?.id || 'new'),
+      value: r.value ? Number(r.value) || 0 : 0,
+      followUpDate: r.followUpDate || '',
+      notes: r.notes || '',
+      id: uid(),
+      createdAt: todayISO(),
+    }));
+    setLeads(ls => [...newLeads, ...ls]);
+    cacheLeads([...newLeads, ...leads]);
+    showToast(`${newLeads.length} leads importados correctamente`, 'success');
+    for (const lead of newLeads) {
+      try { await api.upsertLead(lead); } catch {}
+    }
+  };
+
   const isAdmin    = me?.role === 'admin';
-  const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, showToast };
+  const commonProps = { leads, onEdit: openEdit, onDelete: handleDelete, onStageChange: handleStageChange, onImport: handleImport, showToast };
 
   const viewLabels = { dashboard:'Dashboard', leads:'Leads', pipeline:'Pipeline', reports:'Informes', reminders:'Recordatorios', admin:'Clientes' };
 
