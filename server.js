@@ -4,6 +4,20 @@ const bcrypt  = require('bcryptjs');
 const path    = require('path');
 const fs      = require('fs');
 
+// ── Simple in-memory rate limiter (no extra packages) ────────────
+const loginAttempts = new Map();
+function isRateLimited(ip) {
+  const now  = Date.now();
+  const win  = 15 * 60 * 1000; // 15 min window
+  const max  = 10;              // max attempts per window
+  let entry  = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) { entry = { count: 0, resetAt: now + win }; loginAttempts.set(ip, entry); }
+  entry.count++;
+  return entry.count > max;
+}
+// Clean up old entries every 30 min to avoid memory leak
+setInterval(() => { const now = Date.now(); loginAttempts.forEach((v, k) => { if (now > v.resetAt) loginAttempts.delete(k); }); }, 30 * 60 * 1000);
+
 // PostgreSQL (Railway production) — only loaded when DATABASE_URL is set
 let pool = null;
 if (process.env.DATABASE_URL) {
@@ -24,13 +38,20 @@ if (!pool) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Middleware ────────────────────────────────────────────────────
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+if (!process.env.SESSION_SECRET) console.warn('⚠️  SESSION_SECRET no configurado — configuralo en Railway');
+
+app.use(express.json({ limit: '50kb' }));
+app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'lf-change-in-prod-2026',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: {
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,                                        // no accesible por JS del cliente
+    secure:   process.env.NODE_ENV === 'production',      // solo HTTPS en prod
+    sameSite: 'lax',                                      // protege contra CSRF
+  },
 }));
 
 // ── DB setup (PostgreSQL) ────────────────────────────────────────
@@ -231,12 +252,24 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Block server-side files from being served statically — unconditional, no auth bypass
+const BLOCKED_PATHS = new Set(['/server.js', '/auth.json', '/package.json', '/package-lock.json', '/railway.json', '/.gitignore', '/.env']);
+app.use((req, res, next) => {
+  const p = req.path.toLowerCase();
+  if (BLOCKED_PATHS.has(p) || p.startsWith('/data/') || p.startsWith('/node_modules/') || p.startsWith('/.'))
+    return res.status(404).end();
+  next();
+});
+
 app.use(requireAuth);
 app.use(express.static(path.join(__dirname)));
 
 // ── Auth routes ───────────────────────────────────────────────────
 
 app.post('/auth/login', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+  if (isRateLimited(ip)) return res.status(429).json({ ok: false, error: 'Demasiados intentos. Esperá 15 minutos.' });
+
   const { username, password } = req.body;
   const user = await findUser(username);
   if (!user || !bcrypt.compareSync(password, user.passwordHash))
@@ -322,17 +355,21 @@ app.delete('/api/leads/:id', async (req, res) => {
 // ── Make Webhook ──────────────────────────────────────────────────
 
 app.post('/api/webhook/:key', async (req, res) => {
+  // Validate key format to avoid unnecessary DB lookups
+  if (!/^[\w\-]{8,40}$/.test(req.params.key)) return res.status(400).json({ error: 'Key inválida' });
+
   const users = await getUsers();
   const user  = users.find(u => u.webhookKey === req.params.key);
   if (!user) return res.status(404).json({ error: 'Webhook key no válida' });
 
   const b    = req.body;
+  const trunc = (s, n) => String(s || '').slice(0, n); // prevent oversized fields
   const lead = {
-    id: uid(), name: b.name || 'Sin nombre', phone: b.phone || '',
-    email: b.email || '', source: b.source || 'Facebook Ads',
-    campaign: b.campaign || '', adSet: b.adSet || '',
-    stage: 'new', notes: b.notes || '',
-    createdAt: b.createdAt || todayISO(), followUpDate: tomorrowISO(), value: b.value || 0,
+    id: uid(), name: trunc(b.name, 120) || 'Sin nombre', phone: trunc(b.phone, 30),
+    email: trunc(b.email, 120), source: trunc(b.source, 60) || 'Facebook Ads',
+    campaign: trunc(b.campaign, 120), adSet: trunc(b.adSet, 120),
+    stage: 'new', notes: trunc(b.notes, 1000),
+    createdAt: b.createdAt || todayISO(), followUpDate: tomorrowISO(), value: Number(b.value) || 0,
   };
   await upsertLead(user.username, lead);
   console.log(`📥 [Make → ${user.name}] ${lead.name} | ${lead.phone}`);
